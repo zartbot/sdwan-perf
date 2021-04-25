@@ -1,6 +1,7 @@
 package client
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"time"
@@ -22,7 +23,7 @@ type PerfClient struct {
 	uri      string
 	RespChan chan *ClientRespMetric
 	ErrChan  chan error
-	Client   *fasthttp.PipelineClient
+	Client   []*fasthttp.PipelineClient
 }
 
 //Prinf Nothing, I hate the logs during performance test
@@ -51,41 +52,51 @@ func New(clients int32, pipeline int32, timeout time.Duration, uri string) (*Per
 		uri:      uri,
 		RespChan: make(chan *ClientRespMetric, 2*clients*pipeline),
 		ErrChan:  make(chan error, 2*clients*pipeline),
-		Client: &fasthttp.PipelineClient{
+	}
+
+	c.Client = make([]*fasthttp.PipelineClient, int(clients))
+
+	for i := 0; i < int(c.num); i++ {
+		c.Client[i] = &fasthttp.PipelineClient{
 			Addr:               address,
 			IsTLS:              u.Scheme == "https",
 			MaxPendingRequests: int(pipeline),
-		},
+			Logger:             c,
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
 	}
 	logrus.Info("Start testing with: ", uri)
-	c.Client.Logger = c
 	return c, nil
 }
 
 func (p *PerfClient) Run() {
-	for j := 0; j < int(p.num); j++ {
-		go func() {
-			req := fasthttp.AcquireRequest()
-			req.SetRequestURI(p.uri)
-			res := fasthttp.AcquireResponse()
+	for i := 0; i < int(p.num); i++ {
+		go p.StartClient(i)
+	}
+}
 
-			for {
-				startTime := time.Now()
-				if err := p.Client.DoTimeout(req, res, p.timeout); err != nil {
-					p.ErrChan <- err
-				} else {
-					size := len(res.Body()) + 2
-					res.Header.VisitAll(func(key, value []byte) {
-						size += len(key) + len(value) + 2
-					})
-					p.RespChan <- &ClientRespMetric{
-						Status:  res.Header.StatusCode(),
-						Latency: float64(time.Since(startTime).Milliseconds()),
-						Size:    size,
-					}
-					res.Reset()
-				}
+func (p *PerfClient) StartClient(idx int) {
+	req := fasthttp.AcquireRequest()
+	req.SetRequestURI(p.uri)
+	res := fasthttp.AcquireResponse()
+
+	for {
+		startTime := time.Now()
+		if err := p.Client[idx].DoTimeout(req, res, p.timeout); err != nil {
+			p.ErrChan <- err
+		} else {
+			size := len(res.Body()) + 2
+			res.Header.VisitAll(func(key, value []byte) {
+				size += len(key) + len(value) + 2
+			})
+			p.RespChan <- &ClientRespMetric{
+				Status:  res.Header.StatusCode(),
+				Latency: float64(time.Since(startTime).Milliseconds()),
+				Size:    size,
 			}
-		}()
+			res.Reset()
+		}
 	}
 }

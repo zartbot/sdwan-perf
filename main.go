@@ -39,10 +39,10 @@ var cli = &Config{
 	ServerIP:        "127.0.0.1",
 	ServerPort:      "8000",
 	ServerConnClose: false,
-	ClientNum:       10,
+	ClientNum:       1,
 	ClientPipeline:  10,
 	ClientTimeout:   10,
-	BWTestSize:      1,
+	BWTestSize:      100,
 }
 
 func init() {

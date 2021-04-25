@@ -70,8 +70,6 @@ Usage of ./sdwan-perf_linux:
     	client timeout seconds (default 10)
   -url string
     	Testing URL
-
-
 ```
 
 
